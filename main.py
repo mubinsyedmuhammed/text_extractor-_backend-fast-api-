@@ -1,64 +1,31 @@
-from fastapi import FastAPI, File, UploadFile, Form
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from io import BytesIO
 from PIL import Image
 import pytesseract
-from io import BytesIO
-import numpy  as np
-import cv2
 
-pytesseract.pytesseract.tesseract_cmd = r'Tesseract-OCR/tesseract.exe'
 app = FastAPI()
 
-class TextCleaner():
-    
-    def __init__(self, text):
-        self._original_text = text
-        self._cleaned_text = self._clean_text(text)
-    
-    def _clean_text(self, text):
-        
-        text = text.replace("\n", ' ')
-        return " ".join(text.split())
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins. You can specify specific origins here.
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all HTTP methods
+    allow_headers=["*"],  # Allows all headers
+)
 
-    def get_cleaned_text(self):
-        
-        return self._cleaned_text
-            
-    def get_original_text(self):
-        
-        return self._original_text
-        
+# Path to the Tesseract executable (adjust according to your setup)
+pytesseract.pytesseract.tesseract_cmd = r"Tesseract-OCR/tesseract.exe"
 
 @app.post("/extract_text/")
-async def extract_text(
-    image: UploadFile = File(...),
-    x: int = Form(...),
-    y: int = Form(...),
-    width: int = Form(...),
-    height: int = Form(...)
-):
-    try:
-        
-        
-        image_data = await image.read()
-        pil_image = Image.open(BytesIO(image_data))
-        
-        # gray_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_BGR2GRAY)
-             
-        cropped_image = pil_image.crop((x, y, x + width, y + height))
+async def extract_text(file: UploadFile = File(...)):
+    # Read the image from the incoming file
+    image_bytes = await file.read()
+    image = Image.open(BytesIO(image_bytes))
 
-        extracted_text = pytesseract.image_to_string(cropped_image)
-        
-        text_object = TextCleaner(extracted_text)
-        
-        original_extracted_text = text_object.get_original_text()
-        cleaned_extracted_text = text_object.get_cleaned_text()
-            
-        return JSONResponse(content={
-            "extracted_original_text": original_extracted_text,
-            "extracted_cleaned_text": cleaned_extracted_text.strip()
-        })
+    # Extract text using pytesseract
+    extracted_text = pytesseract.image_to_string(image)
 
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
-
+    # Return the extracted text
+    return {"extracted_cleaned_text": extracted_text}
