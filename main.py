@@ -1,64 +1,53 @@
-from fastapi import FastAPI, File, UploadFile, Form
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from io import BytesIO
 from PIL import Image
 import pytesseract
-from io import BytesIO
-import numpy  as np
-import cv2
+import os
+import re
 
-pytesseract.pytesseract.tesseract_cmd = r'Tesseract-OCR/tesseract.exe'
+# Initialize FastAPI app
 app = FastAPI()
 
-class TextCleaner():
-    
-    def __init__(self, text):
-        self._original_text = text
-        self._cleaned_text = self._clean_text(text)
-    
-    def _clean_text(self, text):
-        
-        text = text.replace("\n", ' ')
-        return " ".join(text.split())
+# Add CORS middleware (allows frontend requests)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
+)
 
-    def get_cleaned_text(self):
-        
-        return self._cleaned_text
-            
-    def get_original_text(self):
-        
-        return self._original_text
-        
+# Dynamically detect Tesseract-OCR path (for portability)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TESSERACT_PATH = os.path.join(BASE_DIR, "Tesseract-OCR", "tesseract.exe")
+if os.path.exists(TESSERACT_PATH):
+    pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
+else:
+    raise FileNotFoundError("Tesseract-OCR not found! Place it inside the project folder.")
 
+# pytesseract.pytesseract.tesseract_cmd = r"Tesseract-OCR/tesseract.exe"
+
+# Function to clean extracted text
+def clean_extracted_text(text: str) -> str:
+    text = re.sub(r"[^a-zA-Z0-9.,\n]\s\\]", "", text)   
+    # text = text.strip()
+    return text
+
+# API route for text extraction
 @app.post("/extract_text/")
-async def extract_text(
-    image: UploadFile = File(...),
-    x: int = Form(...),
-    y: int = Form(...),
-    width: int = Form(...),
-    height: int = Form(...)
-):
+async def extract_text(file: UploadFile = File(...)):
     try:
-        
-        
-        image_data = await image.read()
-        pil_image = Image.open(BytesIO(image_data))
-        
-        # gray_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_BGR2GRAY)
-             
-        cropped_image = pil_image.crop((x, y, x + width, y + height))
+        # Read image bytes
+        image_bytes = await file.read()
+        image = Image.open(BytesIO(image_bytes))
 
-        extracted_text = pytesseract.image_to_string(cropped_image)
-        
-        text_object = TextCleaner(extracted_text)
-        
-        original_extracted_text = text_object.get_original_text()
-        cleaned_extracted_text = text_object.get_cleaned_text()
-            
-        return JSONResponse(content={
-            "extracted_original_text": original_extracted_text,
-            "extracted_cleaned_text": cleaned_extracted_text.strip()
-        })
+        # Extract text using PyTesseract
+        extracted_text = pytesseract.image_to_string(image)
+        cleaned_text = clean_extracted_text(extracted_text).lower().title()
 
+        return {"extracted_cleaned_text": cleaned_text}
+    
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        return {"error": str(e)}
 
